@@ -34,8 +34,8 @@
 #define ROLE_AGENT          "AGENT"         /* Từ thứ hai của lệnh HELLO */
 
 /* Trạng thái máy trong danh sách trả về của LIST_AGENTS */
-#define STATUS_ONLINE       "ONLINE"
-#define STATUS_OFFLINE      "OFFLINE"
+#define STATUS_ONLINE       "online"
+#define STATUS_OFFLINE      "offline"
 
 /* ==================== Mã phản hồi (server -> client) ==================== */
 /* Dạng phản hồi: "<MÃ_SỐ> <TÊN_MÃ> [dữ liệu]\r\n" */
@@ -44,7 +44,7 @@
 #define RES_OK                  100     /* OK */
 #define RES_BYE                 101     /* BYE - trả lời QUIT */
 #define RES_LOGIN_OK            110     /* LOGIN_OK <username> */
-#define RES_LIST                120     /* LIST <n> - theo sau là n dòng "AGENT ..." */
+#define RES_LIST                120     /* LIST <n> host:status:cpu:ram ... (1 dòng) */
 
 /* 2xx - Lỗi cú pháp / lệnh không tồn tại */
 #define RES_UNKNOWN_CMD         200     /* UNKNOWN_CMD */
@@ -56,6 +56,7 @@
 #define RES_WRONG_PASS          301     /* WRONG_PASS */
 #define RES_ALREADY_LOGGED_IN   302     /* ALREADY_LOGGED_IN */
 #define RES_NOT_REGISTERED      303     /* NOT_REGISTERED */
+#define RES_HOSTNAME_IN_USE     304     /* HOSTNAME_IN_USE */
 
 /* 5xx - Lỗi server */
 #define RES_SERVER_ERR          500     /* SERVER_ERR */

@@ -30,7 +30,8 @@ Hai file phải luôn khớp nhau.
 
 ### 1.2. Phản hồi của server
 
-Mỗi lệnh client gửi lên nhận **đúng 1 phản hồi**. Dạng:
+Mỗi lệnh client gửi lên nhận **đúng 1 phản hồi**, trừ `HEARTBEAT` thành công thì server
+**không phản hồi** (giảm lưu lượng vì agent gửi 5 giây/lần; `HEARTBEAT` lỗi vẫn có phản hồi). Dạng:
 
 ```
 MÃ_SỐ TÊN_MÃ [dữ liệu]\r\n
@@ -40,7 +41,6 @@ MÃ_SỐ TÊN_MÃ [dữ liệu]\r\n
 - `TÊN_MÃ`: tên ngắn để người đọc dễ hiểu (vd `OK`, `BAD_SYNTAX`).
 - `[dữ liệu]`: tuỳ chọn, phụ thuộc lệnh.
 
-Riêng phản hồi `120 LIST` có thêm nhiều dòng dữ liệu đi kèm (xem mục `LIST_AGENTS`).
 
 ### 1.3. Giới hạn tham số
 
@@ -70,7 +70,7 @@ Một kết nối chỉ có 1 vai trò. Lệnh dành cho vai trò khác sẽ b�
 |----------------------|---------|--------------------------------------------------------------|
 | `DEFAULT_PORT`       | 5500    | Cổng mặc định của server                                     |
 | `HEARTBEAT_INTERVAL` | 5 giây  | Chu kỳ agent gửi `HEARTBEAT`                                 |
-| `AGENT_TIMEOUT`      | 15 giây | Quá thời gian này không nhận heartbeat → server coi máy `OFFLINE` |
+| `AGENT_TIMEOUT`      | 15 giây | Quá thời gian này không nhận heartbeat → server coi máy `offline` |
 
 ---
 
@@ -96,6 +96,7 @@ Một kết nối chỉ có 1 vai trò. Lệnh dành cho vai trò khác sẽ b�
 | 301 | `WRONG_PASS`        | `RES_WRONG_PASS`        | Sai tên đăng nhập hoặc mật khẩu                                 |
 | 302 | `ALREADY_LOGGED_IN` | `RES_ALREADY_LOGGED_IN` | Kết nối đã có vai trò (đã `HELLO` hoặc đã `LOGIN`)               |
 | 303 | `NOT_REGISTERED`    | `RES_NOT_REGISTERED`    | Gửi `HEARTBEAT` khi chưa `HELLO`, hoặc hostname không khớp       |
+| 304 | `HOSTNAME_IN_USE`   | `RES_HOSTNAME_IN_USE`   | `HELLO` với hostname đang được 1 agent online khác sử dụng       |
 | 500 | `SERVER_ERR`        | `RES_SERVER_ERR`        | Lỗi nội bộ của server                                           |
 | 501 | `SERVER_FULL`       | `RES_SERVER_FULL`       | Server đã đủ số kết nối tối đa, server đóng kết nối ngay sau đó  |
 
@@ -114,13 +115,13 @@ không (201) → có quyền / đúng trạng thái không (3xx) → thực hi�
 - **Ai gửi:** agent, ngay sau khi kết nối.
 - **Cú pháp:** `HELLO AGENT <hostname> <ip>`
 - **Ý nghĩa:** báo cho server biết kết nối này là agent của máy `<hostname>` có địa chỉ `<ip>`.
-  Server thêm máy vào danh sách với trạng thái `ONLINE`. Nếu hostname đã có trong danh sách
-  (máy kết nối lại) thì server cập nhật thông tin và đánh dấu lại `ONLINE`.
+  Server thêm máy vào danh sách với trạng thái `online`. Nếu hostname đã có trong danh sách
+  ở trạng thái `offline` (máy kết nối lại) thì server cập nhật thông tin và đánh dấu lại `online`.
 - **Phản hồi:**
   - `100 OK` — đăng ký thành công
   - `201 BAD_SYNTAX` — thiếu/thừa tham số, từ thứ hai không phải `AGENT`, hostname hoặc ip sai định dạng
   - `302 ALREADY_LOGGED_IN` — kết nối này đã `HELLO` hoặc đã `LOGIN` trước đó
-  - `500 SERVER_ERR`
+  - `304 HOSTNAME_IN_USE` — hostname đang `online` trên 1 kết nối khác
 - **Ví dụ:**
   ```
   C: HELLO AGENT lab1-pc01 192.168.1.11
@@ -132,23 +133,29 @@ không (201) → có quyền / đúng trạng thái không (3xx) → thực hi�
 - **Ai gửi:** agent, định kỳ mỗi `HEARTBEAT_INTERVAL` = 5 giây sau khi `HELLO` thành công.
 - **Cú pháp:** `HEARTBEAT <hostname> cpu=<n> ram=<n>`
 - **Ý nghĩa:** cập nhật % CPU, % RAM và thời điểm nhận heartbeat cuối cùng của máy.
-  Nếu quá `AGENT_TIMEOUT` = 15 giây (tức lỡ 3 heartbeat liên tiếp) không nhận được, hoặc kết nối
-  bị đóng, server chuyển máy sang `OFFLINE` (vẫn giữ trong danh sách).
+  Máy chuyển sang `offline` (vẫn giữ trong danh sách) khi:
+  - kết nối bị đóng (agent gửi `QUIT`, tắt đột ngột, mất mạng được TCP phát hiện), hoặc
+  - quá `AGENT_TIMEOUT` = 15 giây (tức lỡ 3 heartbeat liên tiếp) không nhận được heartbeat.
+    Khi đó server coi agent đã treo và **chủ động đóng kết nối**.
+  Server kiểm tra timeout ít nhất 1 lần/giây (timeout 1 giây của `select()`).
 - **Phản hồi:**
-  - `100 OK`
-  - `201 BAD_SYNTAX` — sai số tham số, thiếu tiền tố `cpu=`/`ram=`, giá trị ngoài 0–100
+  - Thành công: **không có phản hồi**
+  - `201 BAD_SYNTAX` — sai số tham số, thiếu tiền tố `cpu=`/`ram=` hoặc sai thứ tự, giá trị
+    không phải số nguyên 0–100
   - `303 NOT_REGISTERED` — kết nối chưa `HELLO`, hoặc `<hostname>` khác hostname đã đăng ký
 - **Ví dụ:**
   ```
   C: HEARTBEAT lab1-pc01 cpu=23 ram=61
-  S: 100 OK
+     (server không trả lời)
+  C: HEARTBEAT lab1-pc01 cpu=150 ram=61
+  S: 201 BAD_SYNTAX
   ```
 
 ### 3.3. `LOGIN` — admin đăng nhập
 
 - **Ai gửi:** admin, ngay sau khi kết nối.
 - **Cú pháp:** `LOGIN <username> <password>`
-- **Ý nghĩa:** xác thực quản trị viên. Giai đoạn đầu tài khoản được cấu hình sẵn ở server.
+- **Ý nghĩa:** xác thực quản trị viên. Hiện tại server dùng 1 tài khoản viết cứng `admin` / `123456` (sẽ đổi sang đọc từ file).
   Mật khẩu gửi dạng rõ (plain text) — đây là giới hạn đã biết của bài tập, chưa mã hoá.
 - **Phản hồi:**
   - `110 LOGIN_OK <username>`
@@ -184,34 +191,35 @@ không (201) → có quyền / đúng trạng thái không (3xx) → thực hi�
 
 - **Ai gửi:** admin, **chỉ khi đã đăng nhập**.
 - **Cú pháp:** `LIST_AGENTS` (không có tham số)
-- **Ý nghĩa:** lấy danh sách tất cả các máy server biết (cả `ONLINE` và `OFFLINE`).
+- **Ý nghĩa:** lấy danh sách tất cả các máy server biết (cả `online` và `offline`).
 - **Phản hồi:**
-  - `120 LIST <n>` rồi **đúng `<n>` dòng** dữ liệu, mỗi dòng 1 máy:
+  - `120 LIST <n> <mục_1> <mục_2> ... <mục_n>` — **tất cả trên 1 dòng**, mỗi mục 1 máy:
     ```
-    AGENT <hostname> <ip> <status> cpu=<n> ram=<n> last_seen=<giây>\r\n
+    <hostname>:<status>:<cpu>:<ram>
     ```
-    - `<status>`: `ONLINE` hoặc `OFFLINE`
-    - `last_seen`: số giây kể từ heartbeat (hoặc `HELLO`) cuối cùng
-    - Chưa có heartbeat nào thì `cpu=0 ram=0`
-    - `<n>` có thể bằng 0 (không có dòng nào theo sau)
+    - `<n>`: tổng số máy server biết; có thể bằng 0 (không có mục nào)
+    - `<status>`: `online` hoặc `offline`
+    - `<cpu>`, `<ram>`: % của heartbeat gần nhất. Dùng `-` khi máy `offline`,
+      hoặc khi máy `online` nhưng chưa gửi heartbeat nào.
   - `201 BAD_SYNTAX` — có tham số thừa
   - `300 NOT_LOGGED_IN` — chưa đăng nhập
 - **Ví dụ:**
   ```
   C: LIST_AGENTS
-  S: 120 LIST 2
-  S: AGENT lab1-pc01 192.168.1.11 ONLINE cpu=23 ram=61 last_seen=2
-  S: AGENT lab1-pc02 192.168.1.12 OFFLINE cpu=5 ram=40 last_seen=47
+  S: 120 LIST 2 lab1-pc01:online:23:61 lab1-pc02:offline:-:-
   ```
 
-> Client đọc dòng đầu, lấy `<n>`, rồi đọc tiếp đúng `<n>` dòng. Nhờ có số đếm nên
-> danh sách dài bao nhiêu cũng không bị giới hạn bởi `MAX_LINE`.
+> **Giới hạn:** cả dòng (tính `\r\n`) không được vượt `MAX_LINE` = 1024 byte. Mỗi mục dài tối đa
+> ~80 byte (hostname 63 ký tự), thường ~25 byte (vd `lab1-pc01:online:23:61`), nên 1 dòng chứa
+> được khoảng 12 (trường hợp xấu nhất) đến ~40 máy. Nếu không đủ chỗ, server **cắt bớt** các mục
+> cuối nhưng vẫn giữ `<n>` là tổng số máy; client thấy số mục nhận được < `<n>` thì biết danh sách
+> bị cắt. Phòng lab lớn hơn cần đổi sang dạng nhiều dòng (dự kiến ở giai đoạn sau).
 
 ### 3.6. `QUIT` — đóng kết nối
 
 - **Ai gửi:** agent hoặc admin, bất cứ lúc nào.
 - **Cú pháp:** `QUIT` (không có tham số)
-- **Ý nghĩa:** server trả lời rồi đóng kết nối. Nếu là agent thì máy chuyển `OFFLINE`;
+- **Ý nghĩa:** server trả lời rồi đóng kết nối. Nếu là agent thì máy chuyển `offline`;
   nếu là admin đang đăng nhập thì tự động đăng xuất.
 - **Phản hồi:**
   - `101 BYE`
@@ -227,7 +235,7 @@ không (201) → có quyền / đúng trạng thái không (3xx) → thực hi�
 | Lệnh          | Ai gửi       | Cú pháp                               | Phản hồi thành công |
 |---------------|--------------|---------------------------------------|---------------------|
 | `HELLO`       | agent        | `HELLO AGENT <hostname> <ip>`         | `100 OK`            |
-| `HEARTBEAT`   | agent        | `HEARTBEAT <hostname> cpu=<n> ram=<n>`| `100 OK`            |
+| `HEARTBEAT`   | agent        | `HEARTBEAT <hostname> cpu=<n> ram=<n>`| *(không phản hồi)*  |
 | `LOGIN`       | admin        | `LOGIN <username> <password>`         | `110 LOGIN_OK`      |
 | `LOGOUT`      | admin        | `LOGOUT`                              | `100 OK`            |
 | `LIST_AGENTS` | admin        | `LIST_AGENTS`                         | `120 LIST <n>`      |
@@ -247,13 +255,13 @@ Kịch bản: agent `lab1-pc01` kết nối và gửi heartbeat; admin đăng nh
         |------ TCP connect -------->|                               |
         |  HELLO AGENT lab1-pc01     |                               |
         |        192.168.1.11        |                               |
-        |--------------------------->|  thêm lab1-pc01, ONLINE       |
+        |--------------------------->|  thêm lab1-pc01, online       |
         |<--------- 100 OK ----------|                               |
         |                            |                               |
         |  HEARTBEAT lab1-pc01       |                               |
         |        cpu=23 ram=61       |                               |
-        |--------------------------->|  cập nhật cpu, ram, last_seen |
-        |<--------- 100 OK ----------|                               |
+        |--------------------------->|  cập nhật cpu, ram,           |
+        |   (không có phản hồi)      |  last_heartbeat               |
         |                            |<-------- TCP connect ---------|
         |                            |                               |
         |                            |<---- LOGIN admin secret123 ---|
@@ -262,12 +270,9 @@ Kịch bản: agent `lab1-pc01` kết nối và gửi heartbeat; admin đăng nh
         |  HEARTBEAT lab1-pc01       |                               |
         |        cpu=30 ram=62       |                               |
         |--------------------------->|                               |
-        |<--------- 100 OK ----------|                               |
         |                            |<-------- LIST_AGENTS ---------|
-        |                            |---------- 120 LIST 1 -------->|
-        |                            |--- AGENT lab1-pc01            |
-        |                            |    192.168.1.11 ONLINE        |
-        |                            |    cpu=30 ram=62 last_seen=1->|
+        |                            |--- 120 LIST 1                 |
+        |                            |    lab1-pc01:online:30:62 --->|
         |                            |                               |
         |                            |<----------- QUIT -------------|
         |                            |----------- 101 BYE ---------->|
@@ -277,4 +282,4 @@ Kịch bản: agent `lab1-pc01` kết nối và gửi heartbeat; admin đăng nh
 ```
 
 Nếu agent mất kết nối hoặc ngừng gửi heartbeat quá 15 giây, lần `LIST_AGENTS` tiếp theo sẽ
-thấy `lab1-pc01` ở trạng thái `OFFLINE`.
+thấy `lab1-pc01:offline:-:-`.

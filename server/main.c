@@ -14,10 +14,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 
+#include "agents.h"
 #include "client.h"
 #include "handler.h"
 #include "log.h"
@@ -87,8 +89,27 @@ static int create_listen_socket(int port)
 static void close_client(Client *cl, const char *reason)
 {
     write_log("disconnect %s:%d (%s)", cl->ip, cl->port, reason);
+
+    /* Kết nối của agent bị đóng -> máy chuyển offline (vẫn giữ trong danh sách) */
+    if (cl->type == CLIENT_AGENT)
+        agent_set_offline(cl->agent_idx, reason);
+
     close(cl->conn.fd);
     cl->active = 0;
+}
+
+/* Gọi mỗi vòng lặp (ít nhất 1 lần/giây): agent nào quá AGENT_TIMEOUT giây
+ * không gửi heartbeat thì coi như đã chết -> đóng kết nối, chuyển offline. */
+static void check_agent_timeouts(void)
+{
+    time_t now = time(NULL);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        Client *cl = &clients[i];
+        if (!cl->active || cl->type != CLIENT_AGENT)
+            continue;
+        if (now - agent_get(cl->agent_idx)->last_heartbeat > AGENT_TIMEOUT)
+            close_client(cl, "heartbeat timeout");
+    }
 }
 
 /* Có kết nối mới trên socket lắng nghe: accept và lưu vào ô trống */
@@ -224,9 +245,16 @@ int main(int argc, char *argv[])
          * Tham số đầu của select() là (max_fd + 1): select chỉ kiểm tra các fd
          * từ 0 đến max_fd, nên phải biết fd lớn nhất đang theo dõi.
          * 3 tập: đọc / ghi / lỗi. Ở đây chỉ cần tập đọc.
-         * Timeout NULL: chờ mãi đến khi có fd sẵn sàng.
+         *
+         * Timeout 1 giây: dù không có client nào gửi gì, select() vẫn trả về
+         * (ready = 0) sau tối đa 1 giây để server kiểm tra agent quá hạn.
+         * Phải gán lại tv mỗi vòng vì trên Linux select() sửa giá trị của tv.
          */
-        int ready = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+
+        int ready = select(max_fd + 1, &readfds, NULL, NULL, &tv);
         if (ready < 0) {
             if (errno == EINTR)     /* Bị tín hiệu ngắt (vd Ctrl+C) */
                 continue;           /* Quay lại kiểm tra running */
@@ -234,15 +262,23 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /* Socket lắng nghe sẵn sàng = có client mới đang chờ accept */
-        if (FD_ISSET(listen_fd, &readfds))
-            accept_client(listen_fd);
+        /* ready = 0: hết 1 giây mà không có sự kiện, bỏ qua phần xử lý fd */
+        if (ready > 0) {
+            /* Socket lắng nghe sẵn sàng = có client mới đang chờ accept */
+            if (FD_ISSET(listen_fd, &readfds))
+                accept_client(listen_fd);
 
-        /* Kiểm tra từng client xem có dữ liệu không */
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].active && FD_ISSET(clients[i].conn.fd, &readfds))
-                handle_client_data(&clients[i]);
+            /* Kiểm tra từng client xem có dữ liệu không */
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (clients[i].active && FD_ISSET(clients[i].conn.fd, &readfds))
+                    handle_client_data(&clients[i]);
+            }
         }
+
+        /* Kiểm tra timeout SAU khi xử lý xong readfds: nếu đóng socket trước,
+         * accept() có thể cấp lại đúng số fd đó cho client mới, và FD_ISSET
+         * cũ sẽ làm server đọc nhầm (recv bị chặn). */
+        check_agent_timeouts();
     }
 
     /* Dọn dẹp khi thoát */
