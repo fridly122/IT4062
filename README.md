@@ -74,7 +74,7 @@ make clean      # xoá thư mục bin/
 ## Tiến độ
 
 - [x] Khởi tạo project
-- [ ] Thiết kế giao thức
+- [x] Thiết kế giao thức (xem [docs/protocol.md](docs/protocol.md))
 - [ ] Xử lý truyền dòng
 - [ ] Server đa client
 - [ ] Agent heartbeat + Admin xem danh sách
