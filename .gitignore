@@ -1,0 +1,11 @@
+# File build
+bin/
+*.o
+
+# Log
+*.log
+
+# File hệ thống / IDE
+.DS_Store
+.vscode/
+.idea/
