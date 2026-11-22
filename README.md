@@ -73,10 +73,49 @@ make clean      # xoá thư mục bin/
 ./bin/admin  <server_ip> <port>      # vd: ./bin/admin 127.0.0.1 5500
 ```
 
+Server ghi log ra màn hình và vào file `server.log` (trong thư mục đang chạy lệnh).
+Nhấn `Ctrl+C` để tắt server.
+
+## Kiểm thử thủ công
+
+Dùng `nc` (netcat) đóng vai client. **Chú ý:** giao thức yêu cầu mỗi dòng kết thúc bằng `\r\n`,
+còn `nc` mặc định chỉ gửi `\n`, nên phải thêm cờ để `nc` gửi CRLF:
+
+- macOS: `nc -c localhost 5500`
+- Linux (netcat-openbsd): `nc -C localhost 5500`
+
+Thiếu cờ này thì server không thấy dòng hoàn chỉnh và sẽ không phản hồi.
+
+**Các bước:**
+
+1. Terminal 1 — chạy server:
+   ```bash
+   make
+   ./bin/server 5500
+   ```
+2. Terminal 2, 3, 4 — mỗi terminal mở 1 client:
+   ```bash
+   nc -c localhost 5500
+   ```
+   Server in `connect 127.0.0.1:<port> (slot N)` cho mỗi client.
+3. Ở các client, gõ lệnh linh tinh, vd `abc`, `hello world`.
+   Mỗi lệnh nhận `200 UNKNOWN_CMD`; server log `127.0.0.1:<port> -> abc`.
+4. Gõ `QUIT now` → `201 BAD_SYNTAX` (QUIT không có tham số), kết nối vẫn giữ.
+5. Gõ `QUIT` → nhận `101 BYE`, server đóng kết nối, log `disconnect ... (quit)`.
+6. Ở 1 client khác, nhấn `Ctrl+C` để tắt `nc` đột ngột.
+   Server log `disconnect ... (closed by peer)` và **không crash**.
+7. Ở client còn lại, gõ tiếp vài lệnh → vẫn nhận phản hồi bình thường.
+8. Ở terminal server, nhấn `Ctrl+C` → server log `shutting down` và thoát.
+9. Xem lại log: `cat server.log`.
+
+**Kết quả mong đợi:** server phục vụ đồng thời nhiều client, client này thoát (dù đúng cách
+hay đột ngột) không ảnh hưởng client khác. Khi đã có đủ `MAX_CLIENTS` = 64 kết nối,
+client tiếp theo nhận `501 SERVER_FULL` và bị đóng ngay.
+
 ## Tiến độ
 
 - [x] Khởi tạo project
 - [x] Thiết kế giao thức (xem [docs/protocol.md](docs/protocol.md))
 - [x] Xử lý truyền dòng (`common/stream.c`, kiểm tra bằng `make test`)
-- [ ] Server đa client
+- [x] Server đa client (`select()`, log vào `server.log`)
 - [ ] Agent heartbeat + Admin xem danh sách

@@ -23,6 +23,11 @@ SERVER_SRC = $(wildcard server/*.c)
 AGENT_SRC  = $(wildcard agent/*.c)
 ADMIN_SRC  = $(wildcard admin/*.c)
 
+# Header riêng của từng chương trình: sửa .h thì build lại
+SERVER_HDR = $(wildcard server/*.h)
+AGENT_HDR  = $(wildcard agent/*.h)
+ADMIN_HDR  = $(wildcard admin/*.h)
+
 # Code test nằm riêng trong tests/, chỉ dùng cho "make test",
 # không bao giờ được link vào server/agent/admin.
 TEST_SRC   = tests/test_stream.c
@@ -44,13 +49,13 @@ admin:  $(BIN_DIR)/admin
 #   - Phía trước dấu "|": nếu các file này thay đổi thì build lại.
 #   - Sau dấu "|" (order-only): chỉ cần thư mục bin/ tồn tại trước.
 #   - $@ là tên target (vd: bin/server).
-$(BIN_DIR)/server: $(SERVER_SRC) $(COMMON_SRC) $(COMMON_HDR) | $(BIN_DIR)
+$(BIN_DIR)/server: $(SERVER_SRC) $(SERVER_HDR) $(COMMON_SRC) $(COMMON_HDR) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(SERVER_SRC) $(COMMON_SRC)
 
-$(BIN_DIR)/agent: $(AGENT_SRC) $(COMMON_SRC) $(COMMON_HDR) | $(BIN_DIR)
+$(BIN_DIR)/agent: $(AGENT_SRC) $(AGENT_HDR) $(COMMON_SRC) $(COMMON_HDR) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(AGENT_SRC) $(COMMON_SRC)
 
-$(BIN_DIR)/admin: $(ADMIN_SRC) $(COMMON_SRC) $(COMMON_HDR) | $(BIN_DIR)
+$(BIN_DIR)/admin: $(ADMIN_SRC) $(ADMIN_HDR) $(COMMON_SRC) $(COMMON_HDR) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(ADMIN_SRC) $(COMMON_SRC)
 
 # Build chương trình test rồi chạy luôn.
