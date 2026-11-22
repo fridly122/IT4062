@@ -47,6 +47,7 @@ Hệ thống gồm 3 chương trình viết bằng C, giao tiếp với nhau qua
 │   └── main.c
 ├── admin/      # Mã nguồn admin
 │   └── main.c
+├── tests/      # Chương trình kiểm thử (make test)
 ├── docs/       # Tài liệu (thiết kế giao thức, báo cáo)
 ├── Makefile
 ├── README.md
@@ -60,6 +61,7 @@ Yêu cầu: `gcc` (hoặc clang trên macOS) và `make`. Chạy được trên m
 ```bash
 make            # build cả 3 chương trình vào thư mục bin/
 make server     # chỉ build server (tương tự: make agent, make admin)
+make test       # build và chạy test (tests/)
 make clean      # xoá thư mục bin/
 ```
 
@@ -75,6 +77,6 @@ make clean      # xoá thư mục bin/
 
 - [x] Khởi tạo project
 - [x] Thiết kế giao thức (xem [docs/protocol.md](docs/protocol.md))
-- [ ] Xử lý truyền dòng
+- [x] Xử lý truyền dòng (`common/stream.c`, kiểm tra bằng `make test`)
 - [ ] Server đa client
 - [ ] Agent heartbeat + Admin xem danh sách
